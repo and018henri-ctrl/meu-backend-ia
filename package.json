@@ -1,16 +1,15 @@
 {
   "name": "meu-backend-ia",
   "version": "1.0.0",
-  "description": "API para o A&M.IA",
+  "description": "API para a plataforma A&M",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "build": "echo 'Sem build para o backend'"
+    "start": "node server.js"
   },
   "dependencies": {
-    "cohere-ai": "^7.13.0",
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "multer": "^1.4.5"
+    "cohere-ai": "7.13.0",
+    "cors": "2.8.5",
+    "express": "4.18.2",
+    "multer": "1.4.4"
   }
 }
