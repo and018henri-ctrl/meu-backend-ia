@@ -65,18 +65,18 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // ===============================================
-// ROTA TRANSCRIÇÃO (HUGGING FACE - Whisper Small)
+// ROTA TRANSCRIÇÃO (HUGGING FACE - Whisper Tiny)
 // ===============================================
 app.post("/api/transcribe", upload.single('file'), async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: "Nenhum ficheiro multimédia recebido." });
+    if (!req.file) return res.status(400).json({ error: "Nenhum arquivo multimídia recebido." });
 
     try {
         if (!HF_TOKEN) return res.status(500).json({ error: "Chave do Hugging Face ausente na Vercel." });
 
-        console.log("A enviar áudio para a Hugging Face. Tamanho:", req.file.size);
+        console.log("Enviando áudio para Hugging Face, tamanho:", req.file.size);
 
-        // MUDANÇA 1: Usar o whisper-small para evitar timeouts e limites de memória
-        const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-small", {
+        // MUDANÇA: Alterado de whisper-small (410 Gone) para whisper-tiny que é super rápido e está ativo.
+        const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-tiny", {
             method: "POST",
             headers: {
                 "Authorization": `Bearer ${HF_TOKEN}`,
@@ -85,34 +85,41 @@ app.post("/api/transcribe", upload.single('file'), async (req, res) => {
             body: req.file.buffer 
         });
 
+        // Lógica super segura para capturar o erro exato sem quebrar o front
         if (!response.ok) {
-            // MUDANÇA 2: Capturar a resposta exata em texto para não perder o erro
-            const errText = await response.text();
-            let errData = {};
-            try { errData = JSON.parse(errText); } catch(e) {}
+            let errText = await response.text();
+            console.error("Erro da API HF (Texto Bruto):", errText);
             
-            console.error("Resposta de Erro da Hugging Face:", errText);
-            
-            // Se a IA estiver adormecida, avisa o aluno do tempo exato de espera
-            if (errData.estimated_time) {
-                return res.status(503).json({ 
-                    error: `A IA de áudio está a iniciar. Tente novamente em ${Math.round(errData.estimated_time)} segundos.` 
-                });
+            try {
+                const errJson = JSON.parse(errText);
+                if (errJson.estimated_time) {
+                    return res.status(503).json({ 
+                        error: `O servidor de áudio está iniciando. Tente novamente em ${Math.round(errJson.estimated_time)} segundos.` 
+                    });
+                }
+                throw new Error(errJson.error || "Erro na Hugging Face");
+            } catch (jsonError) {
+                // Se o erro for um HTML 410, a gente mostra uma mensagem legível para você
+                if (errText.includes("410") || errText.includes("Gone") || errText.includes("<html")) {
+                     throw new Error("O modelo de IA Whisper da Hugging Face foi desativado. Precisa atualizar o nome do modelo no server.js");
+                }
+                throw new Error("Falha desconhecida na comunicação com a Inteligência Artificial.");
             }
-            
-            // Devolve a mensagem real da Hugging Face para o ecrã em vez de um erro genérico
-            throw new Error(errData.error || errText || "Falha desconhecida na API da Hugging Face.");
         }
 
         const data = await response.json();
+        
+        if (!data || !data.text) {
+             throw new Error("A IA não retornou nenhum texto da sua fala.");
+        }
+
         res.json({ text: data.text });
 
     } catch (err) {
-        console.error("Erro na rota /transcribe:", err.message);
-        res.status(500).json({ error: err.message || "Erro interno ao processar o ficheiro." });
+        console.error("Erro Fatal na rota /transcribe:", err.message);
+        res.status(500).json({ error: err.message || "Erro interno ao processar o arquivo de áudio." });
     }
 });
-
 // =============================
 // ROTA GERAÇÃO DE IMAGEM (HUGGING FACE - Stable Diffusion)
 // =============================
