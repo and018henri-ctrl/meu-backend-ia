@@ -65,7 +65,7 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // ===============================================
-// ROTA TRANSCRIÇÃO (HUGGING FACE - Whisper Base)
+// ROTA TRANSCRIÇÃO (HUGGING FACE - Whisper Large V3 Oficial)
 // ===============================================
 app.post("/api/transcribe", upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Nenhum arquivo recebido." });
@@ -73,14 +73,15 @@ app.post("/api/transcribe", upload.single('file'), async (req, res) => {
     try {
         if (!HF_TOKEN) return res.status(500).json({ error: "Chave da Hugging Face ausente." });
 
-        console.log("Processando áudio otimizado. Tamanho:", req.file.size);
+        console.log("Processando áudio oficial. Tamanho:", req.file.size);
 
-        // Whisper Base é o modelo mais rápido e estável no plano gratuito da HF
-        const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-base", {
+        // Voltamos para o modelo OFICIAL que nunca é desativado na Hugging Face
+        const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-large-v3", {
             method: "POST",
             headers: {
                 "Authorization": `Bearer ${HF_TOKEN}`,
-                "Content-Type": req.file.mimetype || "audio/wav"
+                "Content-Type": "audio/wav", // Garantia de formato para a IA não se perder
+                "x-wait-for-model": "true"   // A MÁGICA: Obriga a HF a ligar a IA sem dar erro
             },
             body: req.file.buffer 
         });
@@ -88,19 +89,11 @@ app.post("/api/transcribe", upload.single('file'), async (req, res) => {
         if (!response.ok) {
             const errText = await response.text();
             try {
-                // Tenta ler como JSON
                 const errJson = JSON.parse(errText);
-                if (errJson.estimated_time) {
-                    return res.status(503).json({ 
-                        error: `A IA está ligando os motores... Aguarde ${Math.round(errJson.estimated_time)}s.`,
-                        estimated_time: errJson.estimated_time
-                    });
-                }
                 return res.status(500).json({ error: errJson.error || "Erro na Hugging Face" });
             } catch (e) {
-                // Se a HF retornar HTML, removemos as tags para você conseguir ler o erro real no painel
-                const cleanHtml = errText.replace(/<[^>]*>?/gm, '').substring(0, 150);
-                return res.status(500).json({ error: `Servidor HF: ${cleanHtml.trim()}` });
+                // Removemos o HTML para não quebrar a tela do seu aluno
+                return res.status(500).json({ error: "Servidores da Hugging Face sobrecarregados. Tente em 10 segundos." });
             }
         }
 
