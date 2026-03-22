@@ -65,18 +65,18 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // ===============================================
-// ROTA TRANSCRIÇÃO (HUGGING FACE - Whisper Turbo)
+// ROTA TRANSCRIÇÃO (HUGGING FACE - Whisper Base)
 // ===============================================
 app.post("/api/transcribe", upload.single('file'), async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: "Nenhum arquivo multimídia recebido." });
+    if (!req.file) return res.status(400).json({ error: "Nenhum arquivo recebido." });
 
     try {
-        if (!HF_TOKEN) return res.status(500).json({ error: "Chave do Hugging Face ausente." });
+        if (!HF_TOKEN) return res.status(500).json({ error: "Chave da Hugging Face ausente." });
 
-        console.log("Enviando áudio para HF. Tamanho:", req.file.size);
+        console.log("Processando áudio otimizado. Tamanho:", req.file.size);
 
-        // MUDANÇA: Usando o Whisper Turbo, que é incrivelmente rápido e está ativo
-        const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-large-v3-turbo", {
+        // Whisper Base é o modelo mais rápido e estável no plano gratuito da HF
+        const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-base", {
             method: "POST",
             headers: {
                 "Authorization": `Bearer ${HF_TOKEN}`,
@@ -87,28 +87,25 @@ app.post("/api/transcribe", upload.single('file'), async (req, res) => {
 
         if (!response.ok) {
             const errText = await response.text();
-            console.error("Erro da API HF:", errText);
-            
             try {
+                // Tenta ler como JSON
                 const errJson = JSON.parse(errText);
-                // Devolvemos o tempo de espera para o Front-end fazer a contagem
                 if (errJson.estimated_time) {
                     return res.status(503).json({ 
-                        error: `A IA está ligando... Aguarde ${Math.round(errJson.estimated_time)}s.`,
+                        error: `A IA está ligando os motores... Aguarde ${Math.round(errJson.estimated_time)}s.`,
                         estimated_time: errJson.estimated_time
                     });
                 }
                 return res.status(500).json({ error: errJson.error || "Erro na Hugging Face" });
             } catch (e) {
-                return res.status(500).json({ error: "O modelo da Hugging Face está indisponível no momento." });
+                // Se a HF retornar HTML, removemos as tags para você conseguir ler o erro real no painel
+                const cleanHtml = errText.replace(/<[^>]*>?/gm, '').substring(0, 150);
+                return res.status(500).json({ error: `Servidor HF: ${cleanHtml.trim()}` });
             }
         }
 
         const data = await response.json();
-        
-        if (!data || !data.text) {
-             return res.status(500).json({ error: "A IA não retornou nenhum texto da fala." });
-        }
+        if (!data || !data.text) return res.status(500).json({ error: "A IA processou, mas não detectou falas." });
 
         res.json({ text: data.text });
 
