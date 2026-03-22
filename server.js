@@ -131,6 +131,8 @@ app.post("/api/generate-image", async (req, res) => {
     }
 });
 
+
+
 // ===============================================
 // ROTA TRANSCRIÇÃO (HUGGING FACE - Whisper Large V3)
 // ===============================================
@@ -143,21 +145,35 @@ app.post("/api/transcribe", upload.single('file'), async (req, res) => {
         const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-large-v3", {
             method: "POST",
             headers: {
-                "Authorization": `Bearer ${HF_TOKEN}`
+                "Authorization": `Bearer ${HF_TOKEN}`,
+                "Content-Type": req.file.mimetype // <-- CORREÇÃO 1: Dizer à HF que é um ficheiro de áudio
             },
             body: req.file.buffer 
         });
 
-        if (!response.ok) throw new Error("Falha ao transcrever o ficheiro.");
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            
+            // <-- CORREÇÃO 2: Se a IA estiver a acordar, avisa o frontend para tentar novamente
+            if (errData.estimated_time) {
+                return res.status(503).json({ 
+                    error: `A IA de áudio está a iniciar. Tente novamente em ${Math.round(errData.estimated_time)} segundos.`,
+                    estimated_time: errData.estimated_time
+                });
+            }
+            throw new Error(errData.error || "Falha na API da Hugging Face.");
+        }
 
         const data = await response.json();
         res.json({ text: data.text });
 
     } catch (err) {
-        console.error("Erro na transcrição:", err);
-        res.status(500).json({ error: "Erro interno ao processar o ficheiro multimédia." });
+        console.error("Erro na transcrição:", err.message);
+        // Devolve o erro exato para sabermos o que falhou
+        res.status(500).json({ error: err.message || "Erro interno ao processar o ficheiro multimédia." });
     }
 });
+
 
 // ===============================================
 // ROTA DE GERAÇÃO DE VÍDEO (EXPERIMENTAL)
