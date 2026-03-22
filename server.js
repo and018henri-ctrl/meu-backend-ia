@@ -65,54 +65,43 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // ===============================================
-// ROTA TRANSCRIÇÃO (GEMINI NO BACKEND - 100% ESTÁVEL)
+// ROTA TRANSCRIÇÃO (GROQ - Whisper Large V3 - 100% GRÁTIS E RÁPIDO)
 // ===============================================
 app.post("/api/transcribe", upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Nenhum arquivo multimídia recebido." });
 
     try {
-        // 👇 Usa a sua chave do Gemini 👇
-        const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "AIzaSyAujRKplHFqHnYr3jc67QHmVIMmTSbBAOo"; 
+        const GROQ_API_KEY = process.env.GROQ_API_KEY;
+        if (!GROQ_API_KEY) return res.status(500).json({ error: "Chave da Groq ausente na Vercel." });
 
-        console.log("Enviando áudio para o Gemini via Vercel. Tamanho:", req.file.size);
+        console.log("Enviando áudio para a Groq. Tamanho:", req.file.size);
 
-        // Converte o arquivo para Base64 para o Gemini ler
-        const base64Audio = req.file.buffer.toString('base64');
+        // A Groq exige formato FormData padrão para arquivos
+        const formData = new FormData();
+        const blob = new Blob([req.file.buffer], { type: req.file.mimetype || 'audio/wav' });
+        formData.append("file", blob, "audio.wav");
+        formData.append("model", "whisper-large-v3");
 
-        const payload = {
-            contents: [{
-                role: "user",
-                parts: [
-                    { text: "Por favor, transcreva exatamente e de forma contínua o que é dito neste áudio." },
-                    {
-                        inlineData: {
-                            mimeType: req.file.mimetype || "audio/wav",
-                            data: base64Audio
-                        }
-                    }
-                ]
-            }]
-        };
-
-        // 👇 MUDANÇA: Atualizado para o gemini-2.5-flash, que é o modelo ativo! 👇
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        // Faz a chamada para a Groq (transcreve quase instantaneamente!)
+        const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
+            headers: {
+                "Authorization": `Bearer ${GROQ_API_KEY}`
+            },
+            body: formData
         });
 
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.error?.message || "Falha na API do Gemini.");
+            throw new Error(errData.error?.message || "Falha na API da Groq.");
         }
 
         const data = await response.json();
-        const transcriptText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        
+        if (!data.text) throw new Error("A IA processou o áudio, mas não detectou falas.");
 
-        if (!transcriptText) throw new Error("A IA processou o áudio, mas não detectou falas.");
-
-        // Devolve o texto limpo!
-        res.json({ text: transcriptText });
+        // Devolve o texto limpo para a sua Área do Aluno!
+        res.json({ text: data.text });
 
     } catch (err) {
         console.error("Erro na rota /transcribe:", err.message);
