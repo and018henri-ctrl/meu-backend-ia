@@ -65,47 +65,61 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // ===============================================
-// ROTA TRANSCRIÇÃO (GROQ - Whisper Large V3 - 100% GRÁTIS E RÁPIDO)
+// ROTA TRANSCRIÇÃO (HUGGING FACE - MODO BLINDADO)
 // ===============================================
 app.post("/api/transcribe", upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Nenhum arquivo multimídia recebido." });
 
     try {
-        const GROQ_API_KEY = process.env.GROQ_API_KEY;
-        if (!GROQ_API_KEY) return res.status(500).json({ error: "Chave da Groq ausente na Vercel." });
+        // Puxa a sua chave que já está cadastrada na Vercel
+        const HF_TOKEN = process.env.HF_TOKEN;
+        if (!HF_TOKEN) return res.status(500).json({ error: "Chave da Hugging Face ausente na Vercel." });
 
-        console.log("Enviando áudio para a Groq. Tamanho:", req.file.size);
+        console.log("Enviando áudio para a Hugging Face. Tamanho:", req.file.size);
 
-        // A Groq exige formato FormData padrão para arquivos
-        const formData = new FormData();
-        const blob = new Blob([req.file.buffer], { type: req.file.mimetype || 'audio/wav' });
-        formData.append("file", blob, "audio.wav");
-        formData.append("model", "whisper-large-v3");
-
-        // Faz a chamada para a Groq (transcreve quase instantaneamente!)
-        const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+        // Fazemos a chamada para o Whisper Large V3 (O modelo oficial, que não é desativado)
+        const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-large-v3", {
             method: "POST",
             headers: {
-                "Authorization": `Bearer ${GROQ_API_KEY}`
+                "Authorization": `Bearer ${HF_TOKEN}`,
+                "Content-Type": req.file.mimetype || "audio/wav",
+                "x-wait-for-model": "true" // ESSENCIAL: Impede que a HF rejeite o áudio se estiver dormindo
             },
-            body: formData
+            body: req.file.buffer 
         });
 
+        // Tratamento de erro cirúrgico para devolver a mensagem certa para a Área do Aluno
         if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.error?.message || "Falha na API da Groq.");
+            const errText = await response.text();
+            try {
+                const errJson = JSON.parse(errText);
+                
+                // Se a IA estiver ligando, mandamos o tempo exato para o seu front-end fazer a contagem
+                if (errJson.estimated_time) {
+                    return res.status(503).json({ 
+                        error: `A IA está ligando... Aguarde ${Math.round(errJson.estimated_time)}s.`,
+                        estimated_time: errJson.estimated_time
+                    });
+                }
+                
+                return res.status(500).json({ error: errJson.error || "Erro no processamento da Hugging Face." });
+            } catch (e) {
+                return res.status(500).json({ error: "Servidores da Hugging Face sobrecarregados. Tente novamente." });
+            }
         }
 
         const data = await response.json();
         
-        if (!data.text) throw new Error("A IA processou o áudio, mas não detectou falas.");
+        if (!data || !data.text) {
+             return res.status(500).json({ error: "A IA processou o áudio, mas não detectou falas." });
+        }
 
-        // Devolve o texto limpo para a sua Área do Aluno!
+        // Devolve o texto limpo!
         res.json({ text: data.text });
 
     } catch (err) {
-        console.error("Erro na rota /transcribe:", err.message);
-        res.status(500).json({ error: err.message || "Erro interno ao processar o arquivo de áudio." });
+        console.error("Erro Fatal na rota /transcribe:", err.message);
+        res.status(500).json({ error: err.message || "Erro interno ao processar o arquivo." });
     }
 });
 // =============================
