@@ -64,32 +64,52 @@ app.post("/api/chat", async (req, res) => {
     }
 });
 
-// =============================
-// ROTA VOZ (MANTIDA ORIGINAL)
-// =============================
-app.post("/api/voice", async (req, res) => {
-    const { text } = req.body;
-
-    if (!text) return res.status(400).json({ error: "Texto não fornecido." });
+// ===============================================
+// ROTA TRANSCRIÇÃO (HUGGING FACE - Whisper Small)
+// ===============================================
+app.post("/api/transcribe", upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "Nenhum ficheiro multimédia recebido." });
 
     try {
-        const voiceServerUrl = process.env.VOICE_SERVER_URL;
-        if (!voiceServerUrl) return res.status(500).json({ error: "VOICE_SERVER_URL não configurado." });
+        if (!HF_TOKEN) return res.status(500).json({ error: "Chave do Hugging Face ausente na Vercel." });
 
-        const voiceResponse = await fetch(`${voiceServerUrl}/clone`, {
+        console.log("A enviar áudio para a Hugging Face. Tamanho:", req.file.size);
+
+        // MUDANÇA 1: Usar o whisper-small para evitar timeouts e limites de memória
+        const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-small", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: text })
+            headers: {
+                "Authorization": `Bearer ${HF_TOKEN}`,
+                "Content-Type": req.file.mimetype || "audio/wav"
+            },
+            body: req.file.buffer 
         });
 
-        if (!voiceResponse.ok) return res.status(500).json({ error: "Falha ao gerar voz." });
+        if (!response.ok) {
+            // MUDANÇA 2: Capturar a resposta exata em texto para não perder o erro
+            const errText = await response.text();
+            let errData = {};
+            try { errData = JSON.parse(errText); } catch(e) {}
+            
+            console.error("Resposta de Erro da Hugging Face:", errText);
+            
+            // Se a IA estiver adormecida, avisa o aluno do tempo exato de espera
+            if (errData.estimated_time) {
+                return res.status(503).json({ 
+                    error: `A IA de áudio está a iniciar. Tente novamente em ${Math.round(errData.estimated_time)} segundos.` 
+                });
+            }
+            
+            // Devolve a mensagem real da Hugging Face para o ecrã em vez de um erro genérico
+            throw new Error(errData.error || errText || "Falha desconhecida na API da Hugging Face.");
+        }
 
-        const audioBuffer = await voiceResponse.arrayBuffer();
-        res.setHeader("Content-Type", "audio/mpeg");
-        res.send(Buffer.from(audioBuffer));
+        const data = await response.json();
+        res.json({ text: data.text });
+
     } catch (err) {
-        console.error("Erro voz:", err);
-        res.status(500).json({ error: "Erro ao processar voz." });
+        console.error("Erro na rota /transcribe:", err.message);
+        res.status(500).json({ error: err.message || "Erro interno ao processar o ficheiro." });
     }
 });
 
