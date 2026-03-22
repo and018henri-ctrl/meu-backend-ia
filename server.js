@@ -65,18 +65,18 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // ===============================================
-// ROTA TRANSCRIÇÃO (HUGGING FACE - Whisper Tiny)
+// ROTA TRANSCRIÇÃO (HUGGING FACE - Whisper Turbo)
 // ===============================================
 app.post("/api/transcribe", upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Nenhum arquivo multimídia recebido." });
 
     try {
-        if (!HF_TOKEN) return res.status(500).json({ error: "Chave do Hugging Face ausente na Vercel." });
+        if (!HF_TOKEN) return res.status(500).json({ error: "Chave do Hugging Face ausente." });
 
-        console.log("Enviando áudio para Hugging Face, tamanho:", req.file.size);
+        console.log("Enviando áudio para HF. Tamanho:", req.file.size);
 
-        // MUDANÇA: Alterado de whisper-small (410 Gone) para whisper-tiny que é super rápido e está ativo.
-        const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-tiny", {
+        // MUDANÇA: Usando o Whisper Turbo, que é incrivelmente rápido e está ativo
+        const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-large-v3-turbo", {
             method: "POST",
             headers: {
                 "Authorization": `Bearer ${HF_TOKEN}`,
@@ -85,39 +85,36 @@ app.post("/api/transcribe", upload.single('file'), async (req, res) => {
             body: req.file.buffer 
         });
 
-        // Lógica super segura para capturar o erro exato sem quebrar o front
         if (!response.ok) {
-            let errText = await response.text();
-            console.error("Erro da API HF (Texto Bruto):", errText);
+            const errText = await response.text();
+            console.error("Erro da API HF:", errText);
             
             try {
                 const errJson = JSON.parse(errText);
+                // Devolvemos o tempo de espera para o Front-end fazer a contagem
                 if (errJson.estimated_time) {
                     return res.status(503).json({ 
-                        error: `O servidor de áudio está iniciando. Tente novamente em ${Math.round(errJson.estimated_time)} segundos.` 
+                        error: `A IA está ligando... Aguarde ${Math.round(errJson.estimated_time)}s.`,
+                        estimated_time: errJson.estimated_time
                     });
                 }
-                throw new Error(errJson.error || "Erro na Hugging Face");
-            } catch (jsonError) {
-                // Se o erro for um HTML 410, a gente mostra uma mensagem legível para você
-                if (errText.includes("410") || errText.includes("Gone") || errText.includes("<html")) {
-                     throw new Error("O modelo de IA Whisper da Hugging Face foi desativado. Precisa atualizar o nome do modelo no server.js");
-                }
-                throw new Error("Falha desconhecida na comunicação com a Inteligência Artificial.");
+                return res.status(500).json({ error: errJson.error || "Erro na Hugging Face" });
+            } catch (e) {
+                return res.status(500).json({ error: "O modelo da Hugging Face está indisponível no momento." });
             }
         }
 
         const data = await response.json();
         
         if (!data || !data.text) {
-             throw new Error("A IA não retornou nenhum texto da sua fala.");
+             return res.status(500).json({ error: "A IA não retornou nenhum texto da fala." });
         }
 
         res.json({ text: data.text });
 
     } catch (err) {
         console.error("Erro Fatal na rota /transcribe:", err.message);
-        res.status(500).json({ error: err.message || "Erro interno ao processar o arquivo de áudio." });
+        res.status(500).json({ error: err.message || "Erro interno ao processar o arquivo." });
     }
 });
 // =============================
