@@ -65,46 +65,55 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // ===============================================
-// ROTA TRANSCRIÇÃO (HUGGING FACE - Whisper Large V3 Oficial)
+// ROTA TRANSCRIÇÃO (HUGGING FACE - Whisper Tiny)
 // ===============================================
 app.post("/api/transcribe", upload.single('file'), async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: "Nenhum arquivo recebido." });
+    if (!req.file) return res.status(400).json({ error: "Nenhum arquivo multimídia recebido." });
 
     try {
-        if (!HF_TOKEN) return res.status(500).json({ error: "Chave da Hugging Face ausente." });
+        if (!HF_TOKEN) return res.status(500).json({ error: "Chave da Hugging Face ausente na Vercel." });
 
-        console.log("Processando áudio oficial. Tamanho:", req.file.size);
+        console.log("Enviando áudio otimizado para a HF. Tamanho:", req.file.size);
 
-        // Voltamos para o modelo OFICIAL que nunca é desativado na Hugging Face
-        const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-large-v3", {
+        // Whisper Tiny: O mais rápido de todos, perfeito para contornar o limite de 10s da Vercel!
+        const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-tiny", {
             method: "POST",
             headers: {
                 "Authorization": `Bearer ${HF_TOKEN}`,
-                "Content-Type": "audio/wav", // Garantia de formato para a IA não se perder
-                "x-wait-for-model": "true"   // A MÁGICA: Obriga a HF a ligar a IA sem dar erro
+                "Content-Type": req.file.mimetype || "audio/wav",
+                "x-wait-for-model": "true"
             },
             body: req.file.buffer 
         });
 
         if (!response.ok) {
-            const errText = await response.text();
+            let errText = await response.text();
             try {
                 const errJson = JSON.parse(errText);
-                return res.status(500).json({ error: errJson.error || "Erro na Hugging Face" });
-            } catch (e) {
-                // Removemos o HTML para não quebrar a tela do seu aluno
-                return res.status(500).json({ error: "Servidores da Hugging Face sobrecarregados. Tente em 10 segundos." });
+                if (errJson.estimated_time) {
+                    return res.status(503).json({ 
+                        error: `A IA está a aquecer os motores... Aguarde ${Math.round(errJson.estimated_time)}s e tente de novo.`,
+                        estimated_time: errJson.estimated_time
+                    });
+                }
+                throw new Error(errJson.error || "Erro na Hugging Face");
+            } catch (jsonError) {
+                const cleanError = errText.replace(/<[^>]*>?/gm, '').substring(0, 100);
+                throw new Error(`Servidor HF: ${cleanError}`);
             }
         }
 
         const data = await response.json();
-        if (!data || !data.text) return res.status(500).json({ error: "A IA processou, mas não detectou falas." });
+        
+        if (!data || !data.text) {
+             throw new Error("A IA não conseguiu identificar voz neste trecho.");
+        }
 
         res.json({ text: data.text });
 
     } catch (err) {
-        console.error("Erro Fatal na rota /transcribe:", err.message);
-        res.status(500).json({ error: err.message || "Erro interno ao processar o arquivo." });
+        console.error("Erro na rota /transcribe:", err.message);
+        res.status(500).json({ error: err.message || "Erro interno ao processar o áudio." });
     }
 });
 // =============================
