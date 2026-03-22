@@ -71,12 +71,12 @@ app.post("/api/transcribe", upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Nenhum arquivo multimídia recebido." });
 
     try {
-        // 👇 Usa a chave que você já tinha ou puxa da Vercel 👇
+        // 👇 Usa a sua chave do Gemini 👇
         const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "AIzaSyAujRKplHFqHnYr3jc67QHmVIMmTSbBAOo"; 
 
         console.log("Enviando áudio para o Gemini via Vercel. Tamanho:", req.file.size);
 
-        // O Gemini precisa do áudio em Base64, então a Vercel converte o arquivo na hora
+        // Converte o arquivo para Base64 para o Gemini ler
         const base64Audio = req.file.buffer.toString('base64');
 
         const payload = {
@@ -94,8 +94,8 @@ app.post("/api/transcribe", upload.single('file'), async (req, res) => {
             }]
         };
 
-        // Fazemos a chamada para o Gemini 1.5 Flash (Super rápido e suporta áudio nativamente)
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        // 👇 MUDANÇA: Atualizado para o gemini-2.5-flash, que é o modelo ativo! 👇
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
@@ -111,7 +111,7 @@ app.post("/api/transcribe", upload.single('file'), async (req, res) => {
 
         if (!transcriptText) throw new Error("A IA processou o áudio, mas não detectou falas.");
 
-        // Devolve o texto limpo para a sua Área do Aluno!
+        // Devolve o texto limpo!
         res.json({ text: transcriptText });
 
     } catch (err) {
